@@ -1,0 +1,267 @@
+List of files in the folder:
+----------------------------
+
+  1) core1_0_instructions.txt : Contains the set of instructions to be executed on Core0.
+
+  2) core2_0_instructions.txt : Contains the set of instructions to be executed on Core1.
+
+  3) ProcessorCoreA.v : Reads core1_0_instructions.txt file and writes in instuction for Core0.
+
+  4) ProcessorCoreB.v : Reads core2_0_instructions.txt file and writes in instuction for Core1.
+
+  5) test_MSI.v : Top module, instantiates core, cache and memory.
+
+  6) cache_directlyMapped_32x21bits.v: Determines wheather it is a Read Hit(rh), Read Miss(rm),
+                                        Write Hit(wh), Write Miss(wm) and instantiates CPU and BUS 
+										controller.
+
+  7) FSM_MSI_CPU_requests_controller.v: Based on the coherence state of the cache line of a core and
+                                        the read/write operation, the next state of that cache line 
+										is determined here.
+
+  8) FSM_MSI_BUS_requests_controller.v : Controls Bus -- need to explore more.
+
+  9) memory512x16bits.v : Access the shared memory and Read/Write on memory.
+
+  10) test_MSI.v : Testbench File, generate the clock signal.
+
+
+===============================================================================================
+
+README:
+------
+In the discussion below, we first describe the configuration of the release items accompanying 
+this README file. We have 2 cores core0 and core1, they have separate sets of instructions in 
+core0_0_instruction.txt and core1_0_instruction.txt respectively. At each clock cycle, one 
+instruction from both the instruction.txt file is executed. Each core has a private L1 cache  
+that can hold 32 entries, each entry is of size 21 bits, thus the size of the L1 cache of each 
+core is 32X21 bits. The cache is direct-mapped. Additionally, we have a memory that can hold 
+512 blocks, each of size 16 bits. Thus, the memory size is 512X16 bits.
+
+Each cache entry (line) has 21 bits: 
+[21,20] coherence state bits
+[19:16] tag bits
+[15:0] data bits
+
+Coherence State bits (MSI):- 00: Invalid state, 01: Modified state, 10: Shared state.
+
+Each Instruction (in core0_0_instruction.txt / core1_0_instruction.txt) is of 26 bits: 
+1 bit[read/write]
+9 bits[mem address as 2^9 = 512]
+16 bits data
+
+In the following, we explain the steps for compilation and simulation of the cache coherence 
+protocol code. Note that only the state change of address0 is explained.
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+
+  Step 1) Compile and simulate the code.
+   
+       
+  Step 2) To understand the output file: 
+
+	core0_instructions:
+	10000000000000000000000001
+	00000000010000000000000000
+	10000000000000000000010000
+	
+	core1_instructions:
+	10000000010000000000000010
+	00000000000000000000000000
+	10000000010000000000100000
+	 
+      core1 instruction: 1-000000001-0000000000000010, says write 2 at address 1,
+       Address 1 was in invalid state, write miss occurred (wm = 1 below), 
+	   and the rest wh (write hit), read hit (rh), read miss (rm) are 0.
+
+       core0 instruction: 1-000000000-0000000000000001, says write 1 at address 0
+       Address 0 was in invalid state, write miss occurred
+
+	   Below, we show 3 cache lines of each L1 and 4 memory blocks (for ease of explanation).
+
+	CACHE AND MEMORY CONFIGURATION BEFORE THE INSTRUCTIONS ARE EXECUTED
+	--------------------------------------------------------------------
+
+	   for core 1
+    cc00000000000000000000000000000010Cache 1  w 1 r 0 data 0000000000000010 address 000000001
+       wh 0 rh 0 wm 1 rm 0
+       cache line at address          0: 0000000000000000000000
+       cache line at address          1: 0000000000000000000000
+       cache line at address          2: 0000000000000000000000
+    
+	   for core 0
+    cc00000000000000000000000000000010Cache 0  w 1 r 0 data 0000000000000001 address 000000000
+       wh 0 rh 0 wm 1 rm 0
+       cache line at address          0: 0000000000000000000000
+       cache line at address          1: 0000000000000000000000
+       cache line at address          2: 0000000000000000000000
+    
+        Mem
+                  0 0000000000000000
+                  1 0000000000000000
+                  2 0000000000000000
+                  3 0000000000000000
+
+    
+      CACHE AND MEMORY CONFIGURATION AFTER THE INSTRUCTIONS ARE EXECUTED
+      -------------------------------------------------------------------
+
+      for core 1
+    cc 00000000000000000000000000000011 Cache 1  w 0 r 1 data 0000000000000000 address 000000000
+       wh 0 rh 0 wm 0 rm 1
+       cache line at address          0: 0000000000000000000000
+       cache line at address          1: 0100000000000000000010
+       cache line at address          2: 0000000000000000000000
+    
+     for core 0
+    cc 00000000000000000000000000000011 Cache 0  w 0 r 1 data 0000000000000000 address 000000001
+       wh 0 rh 0 wm 0 rm 1
+       cache line at address          0: 0100000000000000000001
+       cache line at address          1: 0000000000000000000000
+       cache line at address          2: 0000000000000000000000
+    
+        Mem
+                  0 0000000000000000
+                  1 0000000000000000
+                  2 0000000000000000
+                  3 0000000000000000
+                  
+       After execution we can see the cache data line is updated with the write data and no 
+	   operation is done in the shared memory.
+
+       coherence state: address 0 is written by core0, we can see that status 
+	   bits of core0 is changed to 01 i.e, Modified state, and address 0 of core1 is in 
+	   invalid state 00.
+
+      c) 
+          core1 instruction: 0-000000000-0000000000000000, says read from address 0,
+          address 1 was in modified state, read miss occurred 
+
+          core0 instruction: 0-000000001-0000000000000000, says read from address 1,
+          address 0 was in modified state, read miss occurred
+    
+         CACHE AND MEMORY CONFIGURATION BEFORE THE INSTRUCTIONS ARE EXECUTED
+	-------------------------------------------------------------------
+         
+
+       for core 1
+    cc 00000000000000000000000000000011 Cache 1  w 0 r 1 data 0000000000000000 address 000000000
+       wh 0 rh 0 wm 0 rm 1
+       cache line at address          0: 0000000000000000000000
+       cache line at address          1: 0100000000000000000010
+       cache line at address          2: 0000000000000000000000
+    
+       for core 0
+  cc 00000000000000000000000000000011 Cache 0  w 0 r 1 data 0000000000000000 address 000000001
+       wh 0 rh 0 wm 0 rm 1
+       cache line at address          0: 0100000000000000000001
+       cache line at address          1: 0000000000000000000000
+       cache line at address          2: 0000000000000000000000
+    
+        Mem
+                  0 0000000000000000
+                  1 0000000000000000
+                  2 0000000000000000
+                  3 0000000000000000
+
+
+         CACHE AND MEMORY CONFIGURATION AFTER THE INSTRUCTIONS ARE EXECUTED
+      -----------------------------------------------------------------------
+
+
+        for core 1
+   cc 00000000000000000000000000000100 Cache 1  w 1 r 0 data 0000000000100000 address 000000001
+      wh 1 rh 0 wm 0 rm 0
+      cache line at address          0: 1000000000000000000001
+      cache line at address          1: 1000000000000000000010
+      cache line at address          2: 0000000000000000000000
+    
+     for core 0
+   cc 00000000000000000000000000000100 Cache 0  w 1 r 0 data 0000000000010000 address 000000000
+      wh 1 rh 0 wm 0 rm 0
+      cache line at address          0: 1000000000000000000001
+      cache line at address          1: 1000000000000000000010
+      cache line at address          2: 0000000000000000000000
+    
+        Mem
+                  0 0000000000000001
+                  1 0000000000000010
+                  2 0000000000000000
+                  3 0000000000000000
+                     
+
+
+                  
+        After execution we can see the cache data line are updated. As there is read miss and 
+		the data are found in other core, memory write is performed and data from address 0 and 
+		1 are written back to memory at the same cycle.
+
+        coherence state: address 0 is read by core1 from core0,  we can see that status bits of core1
+        is changed to 10 i.e, Shared state, and address 0 of core0 is changed to 10.
+        Memory contains the latest data, and address0 of core0 and core1 are in shared state.
+
+     d) 
+
+  	  core1 instruction: 1-000000001-0000000000100000, says write 32 at address 1,
+          address 1 was in shared state, write hit occurred 
+
+          core0 instruction: 1-000000000-0000000000010000, says write 16 at address 0
+          address 0 was in shared state, write hit occurred
+         
+
+        CACHE AND MEMORY CONFIGURATION BEFORE THE INSTRUCTIONS ARE EXECUTED
+	-------------------------------------------------------------------
+                         
+          for core 1
+     cc 00000000000000000000000000000100 Cache 1  w 1 r 0 data 0000000000100000 address 000000001
+       wh 1 rh 0 wm 0 rm 0
+       cache line at address          0: 1000000000000000000001
+       cache line at address          1: 1000000000000000000010
+       cache line at address          2: 0000000000000000000000
+    
+         for core 0
+    cc 00000000000000000000000000000100 Cache 0  w 1 r 0 data 0000000000010000 address 000000000
+       wh 1 rh 0 wm 0 rm 0
+       cache line at address          0: 1000000000000000000001
+       cache line at address          1: 1000000000000000000010
+       cache line at address          2: 0000000000000000000000
+    
+        Mem
+                  0 0000000000000001
+                  1 0000000000000010
+                  2 0000000000000000
+                  3 0000000000000000
+
+
+         CACHE AND MEMORY CONFIGURATION AFTER THE INSTRUCTIONS ARE EXECUTED
+      -----------------------------------------------------------------------
+
+
+        for core 1
+    cc 00000000000000000000000000000101 Cache 1  w x r x data xxxxxxxxxxxxxxxx address xxxxxxxxx
+        wh x rh x wm x rm  x
+
+        cache line at address          0: 0000000000000000000001
+        cache line at address          1: 0100000000000000100000
+        cache line at address          2: 0000000000000000000000
+    
+       for core 0
+    cc 00000000000000000000000000000101 Cache 0  w x r x data xxxxxxxxxxxxxxxx address xxxxxxxxx
+        wh x rh x wm x rm x
+
+        cache line at address          0: 0100000000000000010000
+        cache line at address          1: 0000000000000000000010
+        cache line at address          2: 0000000000000000000000
+    
+        Mem
+                  0 0000000000000001
+                  1 0000000000000010
+                  2 0000000000000000
+                  3 0000000000000000
+
+    We can see the cache data line are updated with the write data and no operation at shared memory.
+    coherence state: core0 wants to write on address0 which is in shared state,so we can see that 
+	status bits of core1 is changed to 00 i.e, invalid state, and address 0 of core0 is changed 
+	to Modified state(01). 
+                  
+----------------------------------------------------------X--------------------X---------------------------------------------------------
